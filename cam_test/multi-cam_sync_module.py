@@ -1,8 +1,9 @@
+from calendar import c
 import cv2
 import pyzed.sl as sl
 import threading
 import time
-from queue import Queue
+from queue import Queue, Empty
 
 # --- 설정 값들은 상단에 유지 ---
 # 카메라 속성 정의
@@ -13,25 +14,26 @@ CAM_CONFIG = {
     "frame_width": 640, "frame_height": 480, "fps": 30,
     "fourcc": cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')    # MJPEG 코덱 설정 (압축 포맷 사용 시)
 }
-
 ZED_CONFIG = {
     "resolution": sl.RESOLUTION.HD720, "fps": 30,   # 원하는 해상도 & 프레임률
     "depth_mode": sl.DEPTH_MODE.NONE, "sdk_verbose": 1    
 }
+# [New] 각 카메라가 frame을 저장할 버퍼(Queue)의 크기
+BUFFER_SIZE = 10
 
 class Camera:
     """모든 카메라 클래스가 상속할 기본 클래스 (향후 확장용)"""
-    def __init__(self):
+    def __init__(self, buffer_size=1):
         self.thread = None
-        self.queue = Queue(maxsize=1)
+        self.queue = Queue(maxsize=buffer_size)
     
     def start(self):
         """캡처 스레드 시작"""
         self.thread.start()
     
-    def read(self):
+    def read(self, timeout=None):
         """큐에서 최신 프레임 가져오기"""
-        return self.queue.get()
+        return self.queue.get(timeout=timeout)
     
     def stop(self):
         """카메라 리소스 해제 (자식 클래스에서 구현)"""
@@ -39,8 +41,8 @@ class Camera:
 
 class ArduCam(Camera):
     """Arducam을 제어하는 클래스"""
-    def __init__(self, device_path, config):
-        super().__init__()
+    def __init__(self, device_path, config, buffer_size=1):
+        super().__init__(buffer_size)
         self.device_path = device_path
         self.cap = cv2.VideoCapture(self.device_path, cv2.CAP_V4L2)
 
@@ -57,9 +59,18 @@ class ArduCam(Camera):
     
     def _worker(self):
         while True:
-            ret, frame = self.cap.read()
-            if ret:
-                self.queue.put((time.time(), frame))
+            #ret, frame = self.cap.read()
+            if self.cap.grab():     # grab()으로 프레임 캡처
+                # grab 직후 정확한 촬영 시점 timestamp 측정
+                system_timestamp = time.time()
+                #camera_timestamp = (arducamSDK)
+                # retrieve()로 실제 frame data 가져오기
+                ret, frame = self.cap.retrieve()
+                if ret:     # retrieve 성공 확인
+                    if self.queue.full():
+                        try: self.queue.get_nowait()
+                        except Empty: pass
+                    self.queue.put((system_timestamp, frame))
     
     def stop(self):
         self.cap.release()
@@ -67,8 +78,8 @@ class ArduCam(Camera):
 
 class ZedCam(Camera):
     """ZED 카메라를 제어하는 클래스"""
-    def __init__(self, config):
-        super().__init__()
+    def __init__(self, config, buffer_size=1):
+        super().__init__(buffer_size)
         self.zed = sl.Camera()
         init_params = sl.InitParameters(
             camera_resolution=config['resolution'],
@@ -88,50 +99,113 @@ class ZedCam(Camera):
         runtime = sl.RuntimeParameters()
         while True:
             if self.zed.grab(runtime) == sl.ERROR_CODE.SUCCESS:
-                timestamp = self.zed.get_timestamp(sl.TIME_REFERENCE.IMAGE)
+                system_timestamp = time.time()
+                #camera_timestamp = self.zed.get_timestamp(sl.TIME_REFERENCE.IMAGE)
                 self.zed.retrieve_image(self.zed_image, sl.VIEW.LEFT)
                 frame = self.zed_image.get_data()
-                self.queue.put((timestamp, frame))
+                if self.queue.full():
+                    try: self.queue.get_nowait()
+                    except Empty: pass
+                self.queue.put((system_timestamp, frame))
     
     def stop(self):
         self.zed.close()
         print("ZED 카메라가 닫혔습니다.")
 
+# [New] Slave Queue에서 Master Timestamp와 가장 가까운 frame을 찾는 함수
+def find_best_match_in_queue(slave_queue, master_ts):
+    if slave_queue.empty():
+        return None
+    
+    buffer_list = []
+    # 큐에서 모든 아이템을 안전하게 가져오기
+    while not slave_queue.empty():
+        try: 
+            item = slave_queue.get_nowait()
+            buffer_list.append(item)
+        except Empty: 
+            break
+    
+    if not buffer_list:
+        return None
+    
+    # 가장 가까운 타임스탬프를 가진 아이템 찾기
+    best_match = min(buffer_list, key=lambda x: abs(x[0] - master_ts))
+    
+    # 나머지 아이템들을 다시 큐에 넣기 (최신 것만 유지)
+    for item in buffer_list:
+        if item != best_match:  # 선택된 것 제외하고 나머지 다시 넣기
+            try:
+                slave_queue.put_nowait(item)
+            except:
+                # 큐가 가득 찬 경우 가장 오래된 것 버리기
+                break
+    
+    return best_match
+
 
 def main():
-    cameras = {
-        'left': ArduCam(CAM_CONFIG['left_cam'], CAM_CONFIG),
-        'right': ArduCam(CAM_CONFIG['right_cam'], CAM_CONFIG),
-        'zed': ZedCam(ZED_CONFIG)
-    }
+    try:
+        cameras = {
+            'left': ArduCam(CAM_CONFIG['left_cam'], CAM_CONFIG, buffer_size=BUFFER_SIZE),
+            'right': ArduCam(CAM_CONFIG['right_cam'], CAM_CONFIG, buffer_size=BUFFER_SIZE),
+            'zed': ZedCam(ZED_CONFIG, buffer_size=BUFFER_SIZE)
+        }
+    except IOError as e:
+        print(e)
+        return
     
     # 모든 카메라 스레드 시작
     for cam in cameras.values():
         cam.start()
 
-    SYNC_THRESHOLD_SEC = (1 / CAM_CONFIG['fps'] / 2)  # e.g., (1 / 30 / 2) = 약 0.0167초
+    # ---- 카메라 안정화를 위해 워밍업 과정 추가 ----
+    WARMUP_FRAMES = CAM_CONFIG['fps'] * 2
+    print(f"카메라 안정화를 위해 {WARMUP_FRAMES} 프레임 동안 워밍업을 시작합니다...")
+    for _ in range(WARMUP_FRAMES):
+        for cam in cameras.values():
+            cam.read()  # frame을 읽기만 하고 사용하지 않음
+    print("워밍업 완료.")
+    # ------------------------------------------
+
+    # 안정적인 매칭을 위해, 베스트 매치의 시간 차이도 일저 수준 이하여야 함
+    #MAX_ALLOWED_DIFF_SEC = (1 / CAM_CONFIG['fps'] / 2)  # e.g., (1 / 30 / 2) = 약 0.0167초
+    MAX_ALLOWED_DIFF_SEC = 0.04
+    #SYNC_THRESHOLD_SEC = (1 / CAM_CONFIG['fps'] / 2)  # e.g., (1 / 30 / 2) = 약 0.0167초
     GUI_DEBUG = False
     exit_app = False
 
     try:
         while not exit_app:
-            # 모든 카메라에서 프레임 읽기
-            ts_left, frame_l = cameras['left'].read()
-            ts_right, frame_r = cameras['right'].read()
-            ts_zed, frame_z = cameras['zed'].read()
+            # 1. 마스터 카메라(ZED)에서 최신 프레임을 가져옴
+            try:
+                master_ts, master_frame = cameras['zed'].read()
+            except Empty:
+                print("마스터 카메라(ZED)에서 1초 이상 프레임이 없습니다. 확인이 필요합니다.")
+                continue
+        
+            # 2. 각 슬레이브 카메라의 버퍼에서 최적의 짝을 찾음
+            left_match = find_best_match_in_queue(cameras['left'].queue, master_ts)
+            right_match = find_best_match_in_queue(cameras['right'].queue, master_ts)
 
-            # ZED 타임스탬프는 나노초 단위일 수 있으므로 단위를 통일해야 함 (OpenCV의 time.time()은 초 단위)
-            ts_zed_sec = ts_zed.get_nanoseconds() * 1e-9
+            # 3. 모든 카메라에서 성공적으로 짝을 찾았는지 확인
+            if left_match is None or right_match is None:
+                print("슬레이브 카메라(Arducam) 버퍼가 비어있습니다. 잠시 기다립니다...")
+                continue
+
+            ts_left, frame_l = left_match
+            ts_right, frame_r = right_match
+
+            # 4. 찾아낸 베스트 매치도 허용 오차 내에 있는지 최종 확인
+            diff_zl = abs(master_ts - ts_left)
+            diff_zr = abs(master_ts - ts_right)
             
-            # 타임스탬프 비교 (모든 카메라의 프레임이 허용 오차 내에 있는지 확인)
-            diff_zl = abs(ts_zed_sec - ts_left)
-            diff_zr = abs(ts_zed_sec - ts_right)
-            if diff_zl < SYNC_THRESHOLD_SEC and diff_zr < SYNC_THRESHOLD_SEC:
-                print(f"Synced frames found! Timestamps: ZED={ts_zed_sec:.3f}, L={ts_left:.3f}, R={ts_right:.3f}")
-                
-                # sync 이미지를 기반으로 다음 로직 처리리...
+            if diff_zl < MAX_ALLOWED_DIFF_SEC and diff_zr < MAX_ALLOWED_DIFF_SEC:
+                print(f"Synced! Time Diffs: Z-L={diff_zl:.4f}, Z-R={diff_zr:.4f}")
+
+                # sync 이미지를 기반으로 다음 로직 처리...
                 # ZED는 4채널(RGBA) 이미지를 반환하므로, RGB로 변환
-                frame_z_rgb = cv2.cvtColor(frame_z, cv2.COLOR_RGBA2RGB)
+                frame_z_rgb = cv2.cvtColor(master_frame, cv2.COLOR_RGBA2RGB)
 
                 # GUI 디버깅 할 때 사용
                 if GUI_DEBUG:
@@ -141,14 +215,11 @@ def main():
                     
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         exit_app = True
-                        break
             else:
-                # 동기화가 맞지 않으면 가장 오래된 프레임을 버리고 다음 루프에서 새 프레임을 기다리는 전략 사용 가능
-                print("Frames out of sync, skipping... | Time diffs: Z-L={diff_zl:.4f}s, Z-R={diff_zr:.4f}s")
+                print(f"Frames out of sync, skipping... | Time diffs: Z-L={diff_zl:.4f}s, Z-R={diff_zr:.4f}s")
 
     except KeyboardInterrupt:
-        print("KeyboardInterrupt 발생. 프로그램을 종료합니다.")
-        exit_app = True
+        print("\nKeyboardInterrupt 발생. 프로그램을 종료합니다.")
 
     finally:
         # 모든 카메라 리소스 해제

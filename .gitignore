@@ -23,6 +23,10 @@ logs/
 *.gif
 *.bmp
 *.tiff
+# 동영상 파일
+*.mp4
+*.avi
+*.webm
 # 만약 데이터셋 폴더를 사용한다면
 # dataset/
 # data/

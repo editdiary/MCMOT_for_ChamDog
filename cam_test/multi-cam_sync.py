@@ -2,7 +2,7 @@ import cv2
 import pyzed.sl as sl
 import threading
 import time
-from queue import Queue
+from queue import Queue, Empty
 
 # --- 설정 값들은 상단에 유지 ---
 # 카메라 속성 정의
@@ -19,14 +19,24 @@ ZED_CONFIG = {
     "depth_mode": sl.DEPTH_MODE.NONE, "sdk_verbose": 1    
 }
 
+# [New] 각 카메라가 frame을 저장할 버퍼(Queue)의 크기
+BUFFER_SIZE = 10
+
 def arducam_worker(cap, q):
     """Arducam 프레임을 읽어 큐에 넣는 워커 함수"""
     while True:
-        ret, frame = cap.read()
-        if ret:
-            # OpenCV는 별도의 타임스탬프 기능이 없으므로, 읽은 직후 시스템 시간 사용
-            timestamp = time.time()
-            q.put((timestamp, frame))
+        #ret, frame = cap.read()
+        if cap.grab():
+            # grab 직후 정확한 촬영 시점 timestamp 측정
+            system_timestamp = time.time()
+            # retrieve()로 실제 frame data 가져오기
+            ret, frame = cap.retrieve()
+            if ret:     # retrieve 성공 확인
+                # 큐가 가득 찬 경우 가장 오래된 프레임 제거
+                if q.full():
+                    try: q.get_nowait()
+                    except: pass
+                q.put((system_timestamp, frame))
 
 def zed_worker(zed, q):
     """ZED 카메라 프레임을 읽어 큐에 넣는 워커 함수"""
@@ -34,11 +44,18 @@ def zed_worker(zed, q):
     zed_image = sl.Mat()
     while True:
         if zed.grab(runtime) == sl.ERROR_CODE.SUCCESS:
-            # ZED SDK는 이미지 캡처 시점의 타임스탬프를 제공하므로 더 정확함
-            timestamp = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE)
+            # ZED SDK는 이미지 캡처 시점의 타임스탬프를 제공
+            system_timestamp = time.time()
+            #camera_timestamp = zed.get_timestamp(sl.TIME_REFERENCE.IMAGE)
+
             zed.retrieve_image(zed_image, sl.VIEW.LEFT)
             frame = zed_image.get_data()
-            q.put((timestamp, frame))
+
+            # 큐가 가득 찬 경우 가장 오래된 프레임 제거
+            if q.full():
+                try: q.get_nowait()
+                except: pass
+            q.put((system_timestamp, frame))
 
 def initialize_arducam_cameras():
     # udev 규칙으로 만든 카메라 별명 사용
@@ -97,6 +114,37 @@ def initialize_zed_camera():
     
     return zed, runtime, zed_image
 
+# [New] Slave Queue에서 Master Timestamp와 가장 가까운 frame을 찾는 함수
+def find_best_match_in_queue(slave_queue, master_ts):
+    if slave_queue.empty():
+        return None
+    
+    buffer_list = []
+    # 큐에서 모든 아이템을 안전하게 가져오기
+    while not slave_queue.empty():
+        try: 
+            item = slave_queue.get_nowait()
+            buffer_list.append(item)
+        except Empty: 
+            break
+    
+    if not buffer_list:
+        return None
+    
+    # 가장 가까운 타임스탬프를 가진 아이템 찾기
+    best_match = min(buffer_list, key=lambda x: abs(x[0] - master_ts))
+    
+    # 나머지 아이템들을 다시 큐에 넣기 (최신 것만 유지)
+    for item in buffer_list:
+        if item != best_match:  # 선택된 것 제외하고 나머지 다시 넣기
+            try:
+                slave_queue.put_nowait(item)
+            except:
+                # 큐가 가득 찬 경우 가장 오래된 것 버리기
+                break
+    
+    return best_match
+
 
 def main():
     # Arducam 카메라 초기화
@@ -105,10 +153,10 @@ def main():
     # ZED 카메라 초기화
     zed, runtime, zed_image = initialize_zed_camera()
 
-    # 각 카메라의 프레임을 담을 큐 생성
-    q_zed = Queue(maxsize=1)
-    q_left = Queue(maxsize=1)
-    q_right = Queue(maxsize=1)
+    # 각 카메라의 프레임을 담을 큐 생성 (버퍼 크기 적용)
+    q_zed = Queue(maxsize=BUFFER_SIZE)
+    q_left = Queue(maxsize=BUFFER_SIZE)
+    q_right = Queue(maxsize=BUFFER_SIZE)
 
     # 스레드 생성
     thread_zed = threading.Thread(target=zed_worker, args=(zed, q_zed))
@@ -123,33 +171,55 @@ def main():
     thread_left.start()
     thread_right.start()
 
-    # 메인 루프
-    # 동기화 허용 오차 (e.g. 30fps의 절반 시간, 약 16ms)
-    SYNC_THRESHOLD_SEC = (1 / CAM_CONFIG['fps'] / 2)  # e.g., (1 / 30 / 2) = 약 0.0167초
+    # ---- 카메라 안정화를 위해 워밍업 과정 추가 ----
+    WARMUP_FRAMES = CAM_CONFIG['fps'] * 2
+    print(f"카메라 안정화를 위해 {WARMUP_FRAMES} 프레임 동안 워밍업을 시작합니다...")
+    for _ in range(WARMUP_FRAMES):
+        try:
+            q_zed.get(timeout=1)
+            q_left.get(timeout=1)
+            q_right.get(timeout=1)
+        except:
+            pass
+    print("워밍업 완료.")
+    # ------------------------------------------
 
+    # 안정적인 매칭을 위해, 베스트 매치의 시간 차이도 일정 수준 이하여야 함
+    MAX_ALLOWED_DIFF_SEC = 0.04  # 동기화 허용 오차
+    GUI_DEBUG = True
     exit_app = False
-    GUI_DEBUG = False
+
     try:
         while not exit_app:
-            # 각 큐에서 최신 프레임 가져오기
-            ts_zed, frame_z = q_zed.get()
-            ts_left, frame_l = q_left.get()
-            ts_right, frame_r = q_right.get()
+            # 1. 마스터 카메라(ZED)에서 최신 프레임을 가져옴
+            try:
+                master_ts, master_frame = q_zed.get(timeout=1)
+            except:
+                print("마스터 카메라(ZED)에서 1초 이상 프레임이 없습니다. 확인이 필요합니다.")
+                continue
+        
+            # 2. 각 슬레이브 카메라의 버퍼에서 최적의 짝을 찾음
+            left_match = find_best_match_in_queue(q_left, master_ts)
+            right_match = find_best_match_in_queue(q_right, master_ts)
 
-            # ZED 타임스탬프는 나노초 단위일 수 있으므로 단위를 통일해야 함 (OpenCV의 time.time()은 초 단위)
-            ts_zed_sec = ts_zed.get_nanoseconds() * 1e-9
+            # 3. 모든 카메라에서 성공적으로 짝을 찾았는지 확인
+            if left_match is None or right_match is None:
+                print("슬레이브 카메라(Arducam) 버퍼가 비어있습니다. 잠시 기다립니다...")
+                continue
 
-            # 타임스탬프 차이 계산
-            diff_zl = abs(ts_zed_sec - ts_left)
-            diff_zr = abs(ts_zed_sec - ts_right)
+            ts_left, frame_l = left_match
+            ts_right, frame_r = right_match
 
-            # 모든 카메라의 프레임이 허용 오차 내에 있는지 확인
-            if diff_zl < SYNC_THRESHOLD_SEC and diff_zr < SYNC_THRESHOLD_SEC:
-                print(f"Synced frames found! Timestamps: ZED={ts_zed_sec:.3f}, L={ts_left:.3f}, R={ts_right:.3f}")
-                
-                # 이 프레임 세트(frame_z, frame_l, frame_r)를 가지고 다음 처리 수행
+            # 4. 찾아낸 베스트 매치도 허용 오차 내에 있는지 최종 확인
+            diff_zl = abs(master_ts - ts_left)
+            diff_zr = abs(master_ts - ts_right)
+            
+            if diff_zl < MAX_ALLOWED_DIFF_SEC and diff_zr < MAX_ALLOWED_DIFF_SEC:
+                print(f"Synced! Time Diffs: Z-L={diff_zl:.4f}, Z-R={diff_zr:.4f}")
+
+                # sync 이미지를 기반으로 다음 로직 처리...
                 # ZED는 4채널(RGBA) 이미지를 반환하므로, RGB로 변환
-                frame_z_rgb = cv2.cvtColor(frame_z, cv2.COLOR_RGBA2RGB)
+                frame_z_rgb = cv2.cvtColor(master_frame, cv2.COLOR_RGBA2RGB)
 
                 # GUI 디버깅 할 때 사용
                 if GUI_DEBUG:
@@ -161,10 +231,7 @@ def main():
                         exit_app = True
                         break
             else:
-                # 동기화가 맞지 않으면 가장 오래된 프레임을 버리고 다음 루프에서 새 프레임을 기다리는 전략 사용 가능
-                print("Frames out of sync, skipping...")
-                # 추가로 디버깅을 위해 현재 시간 차이를 출력
-                print(f"Frames out of sync! Time diffs: Z-L={diff_zl:.4f}s, Z-R={diff_zr:.4f}s")
+                print(f"Frames out of sync, skipping... | Time diffs: Z-L={diff_zl:.4f}s, Z-R={diff_zr:.4f}s")
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt 발생. 프로그램을 종료합니다.")
