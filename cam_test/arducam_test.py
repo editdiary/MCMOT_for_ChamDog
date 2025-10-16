@@ -6,16 +6,18 @@ import cv2
 CAM_CONFIG = {
     "left_cam": "/dev/arducam_left",
     "right_cam": "/dev/arducam_right",
-    "frame_width": 640,
-    "frame_height": 480,
+    "frame_width": 800,
+    "frame_height": 600,
     "fps": 30,
     "fourcc": cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')    # MJPEG 코덱 설정 (압축 포맷 사용 시)
 }
 
 def main():
+    print("설정된 해상도 및 FPS: ", CAM_CONFIG['frame_width'], "x", CAM_CONFIG['frame_height'], "@", CAM_CONFIG['fps'])
+
     # udev 규칙으로 만든 카메라 별명 사용
-    left_cam = CAM_CONFIG.left_cam
-    right_cam = CAM_CONFIG.right_cam
+    left_cam = CAM_CONFIG['left_cam']
+    right_cam = CAM_CONFIG['right_cam']
 
     # 카메라 열기
     # cv2.CAP_V4L2를 추가하여 Video4Linux2 백엔드를 사용하도록 명시하면 더 안정적일 수 있음
@@ -29,27 +31,28 @@ def main():
         print(f"오류: 카메라를 열 수 없습니다. 경로: {right_cam}")
     
     # 카메라 속성 설정
-    left_cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_CONFIG.frame_width)
-    left_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_CONFIG.frame_height)
-    left_cap.set(cv2.CAP_PROP_FPS, CAM_CONFIG.fps)
-    left_cap.set(cv2.CAP_PROP_FOURCC, CAM_CONFIG.fourcc)
+    left_cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_CONFIG['frame_width'])
+    left_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_CONFIG['frame_height'])
+    left_cap.set(cv2.CAP_PROP_FPS, CAM_CONFIG['fps'])
+    left_cap.set(cv2.CAP_PROP_FOURCC, CAM_CONFIG['fourcc'])
 
     print(f"왼쪽 카메라 '{left_cam}'를 성공적으로 열었습니다.")
-    print(f"해상도: {left_cap.get(cv2.CAP_PROP_FRAME_WIDTH)}x{left_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-    print(f"FPS: {left_cap.get(cv2.CAP_PROP_FPS)}")
+    print(f"해상도: {int(left_cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(left_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+    print(f"FPS: {int(left_cap.get(cv2.CAP_PROP_FPS))}")
 
-    right_cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_CONFIG.frame_width)
-    right_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_CONFIG.frame_height)
-    right_cap.set(cv2.CAP_PROP_FPS, CAM_CONFIG.fps)    
-    right_cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    right_cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_CONFIG['frame_width'])
+    right_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_CONFIG['frame_height'])
+    right_cap.set(cv2.CAP_PROP_FPS, CAM_CONFIG['fps'])
+    right_cap.set(cv2.CAP_PROP_FOURCC, CAM_CONFIG['fourcc'])
     print(f"오른쪽 카메라 '{right_cam}'를 성공적으로 열었습니다.")
-    print(f"해상도: {right_cap.get(cv2.CAP_PROP_FRAME_WIDTH)}x{right_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-    print(f"FPS: {right_cap.get(cv2.CAP_PROP_FPS)}")
+    print(f"해상도: {int(right_cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(right_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+    print(f"FPS: {int(right_cap.get(cv2.CAP_PROP_FPS))}")
 
     
     # 메인 루프: 프레임 읽기 및 화면 표시
     exit_app = False
     GUI_DEBUG = False
+    SAVE_IMG = False
     try:
         while not exit_app:
             # frame 한 장씩 읽기
@@ -61,9 +64,8 @@ def main():
             if not ret_r:
                 print("오른쪽 카메라 프레임 읽기 실패")
             
-
-            ######### GUI로 디버깅 할 때 사용 #########
-            # 읽은 프레임을 "Arducam"이라는 창에 표시
+            #--------- GUI로 디버깅 할 때 사용 ---------
+            # GUI를 통한 실시간 디버깅을 위한 코드
             if GUI_DEBUG:
                 if ret_l:
                     cv2.imshow("Arducam LEFT", frame_l)
@@ -74,6 +76,13 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     exit_app = True
                     break
+
+            # 이미지를 파일로 저장하며 확인할 용도의 코드
+            if SAVE_IMG:
+                if ret_l:
+                    cv2.imwrite("arducam_left.jpg", frame_l)
+                if ret_r:
+                    cv2.imwrite("arducam_right.jpg", frame_r)
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt 발생. 프로그램을 종료합니다.")

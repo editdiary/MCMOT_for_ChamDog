@@ -1,9 +1,7 @@
-from calendar import c
 import cv2
 import pyzed.sl as sl
 import threading
 import time
-import os
 from queue import Queue, Empty
 
 # --- 설정 값들은 상단에 유지 ---
@@ -12,7 +10,7 @@ from queue import Queue, Empty
     # 명령어: v4l2-ctl -d /dev/arducam_left --list-formats-ext
 CAM_CONFIG = {
     "left_cam": "/dev/arducam_left", "right_cam": "/dev/arducam_right",
-    "frame_width": 640, "frame_height": 480, "fps": 30,
+    "frame_width": 800, "frame_height": 600, "fps": 30,
     "fourcc": cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')    # MJPEG 코덱 설정 (압축 포맷 사용 시)
 }
 ZED_CONFIG = {
@@ -79,7 +77,6 @@ class ArduCam(Camera):
                     consecutive_failures = 0  # 성공 시 카운터 리셋
                     # grab 직후 정확한 촬영 시점 timestamp 측정
                     system_timestamp = time.time()
-                    #camera_timestamp = (arducamSDK)
                     # retrieve()로 실제 frame data 가져오기
                     ret, frame = self.cap.retrieve()
                     if ret:     # retrieve 성공 확인
@@ -180,7 +177,26 @@ def save_sync_frames(master_frame, frame_l, frame_r):
         print(f"이미지 저장 실패: {e}")
         return False
 
-# [New] Slave Queue에서 Master Timestamp와 가장 가까운 frame을 찾는 함수
+def print_camera_settings(cameras):
+    """모든 카메라의 실제 설정값을 간단히 출력"""
+    print("=== 실제 카메라 설정값 요약 ===")
+    
+    # ArduCam Left
+    left_cap = cameras['left'].cap
+    print(f"ArduCam Left:  {int(left_cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(left_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))} @ {int(left_cap.get(cv2.CAP_PROP_FPS))}fps")
+    
+    # ArduCam Right  
+    right_cap = cameras['right'].cap
+    print(f"ArduCam Right: {int(right_cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(right_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))} @ {int(right_cap.get(cv2.CAP_PROP_FPS))}fps")
+    
+    # ZED Camera
+    zed_cam = cameras['zed'].zed
+    cam_info = zed_cam.get_camera_information()
+    print(f"ZED Camera:    {cam_info.camera_configuration.resolution.width}x{cam_info.camera_configuration.resolution.height} @ {cam_info.camera_configuration.fps}fps")
+    
+    print("==========================\n")
+
+# Slave Queue에서 Master Timestamp와 가장 가까운 frame을 찾는 함수
 def find_best_match_in_queue(slave_queue, master_ts):
     if slave_queue.empty():
         return None
@@ -228,12 +244,15 @@ def main():
         cam.start()
 
     # 모든 카메라 스레드 시작 후, 워밍업 전에 추가
-    print("\n=== 카메라 설정 요약 ===")
+    print("\n=== 설정한 카메라 파라미터 요약 ===")
     print(f"ZED Camera:    {ZED_CONFIG['resolution'].name} @ {ZED_CONFIG['fps']}fps")
     print(f"ArduCam Left:  {CAM_CONFIG['frame_width']}x{CAM_CONFIG['frame_height']} @ {CAM_CONFIG['fps']}fps")
     print(f"ArduCam Right: {CAM_CONFIG['frame_width']}x{CAM_CONFIG['frame_height']} @ {CAM_CONFIG['fps']}fps")
     print(f"버퍼 크기: {BUFFER_SIZE} 프레임")
     print("========================\n")
+    
+    # 실제 설정값들 간단히 출력
+    print_camera_settings(cameras)
 
     # ---- 카메라 안정화를 위해 워밍업 과정 추가 ----
     WARMUP_FRAMES = CAM_CONFIG['fps'] * 2
@@ -246,7 +265,7 @@ def main():
 
     # 안정적인 매칭을 위해, 베스트 매치의 시간 차이도 일정 수준 이하여야 함
     #MAX_ALLOWED_DIFF_SEC = (1 / CAM_CONFIG['fps'] / 2)  # e.g., (1 / 30 / 2) = 약 0.0167초
-    MAX_ALLOWED_DIFF_SEC = (1 / CAM_CONFIG['fps']) * 5    # 약 3frame 차이까지 허용
+    MAX_ALLOWED_DIFF_SEC = (1 / CAM_CONFIG['fps']) * 3    # 약 3frame 차이까지 허용
     GUI_DEBUG = False
     IMG_SAVE = True
     exit_app = False
