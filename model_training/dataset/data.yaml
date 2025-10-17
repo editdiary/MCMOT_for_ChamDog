@@ -1,0 +1,9 @@
+path: /home/leedh/바탕화면/MCT_for_ChamDog/model_training/dataset
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 2
+names:
+  0: fruit
+  1: flower
