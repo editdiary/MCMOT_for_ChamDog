@@ -3,6 +3,14 @@
 import cv2
 #import pyzed.sl as sl
 
+# ----- 저장 경로 설정 -----
+# 이미지 저장 경로 (SCRIPT_DIR 아래 'output_images' 폴더)
+OUTPUT_FOLDER_NAME = "output_images"
+
+# YOLO 폴더 이름
+WEIGHTS_FOLDER_NAME = "weights"
+
+
 # ----- 카메라 하드웨어 설정 -----
 # 카메라 속성 정의 (v4l2-ctl로 확인한 지원하는 값으로 설정해야 함)
 # 명령어: v4l2-ctl -d /dev/arducam_left --list-formats-ext
@@ -28,7 +36,7 @@ ZED_CONFIG = {
 
 # ----- 버퍼 설정 -----
 BUFFER_SIZE = 3                     # 각 카메라 캡처 thread의 프레임 버퍼 크기
-CAMERA_TIMEOUT_SEC = 5.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
+CAMERA_TIMEOUT_SEC = 3.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
 MAIN_LOOP_TIMEOUT = 0.2             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
 INFERENCE_BUFFER_SIZE = 5           # 추론 스레드 입력 큐의 버퍼 크기
 SAVE_BUFFER_SIZE = 10               # [New!] 저장 스레드 입력 큐의 버퍼 크기
@@ -54,4 +62,4 @@ USE_ZED_RIGHT_FOR_PIPE = False
 
 # ----- 실행 옵션 -----
 GUI_DEBUG = False       # True일 경우 OpenCV 창으로 실시간 영상 표시
-IMG_SAVE = False        # True일 경우 동기화된 프레임 이미지 파일로 저장
+IMG_SAVE = True        # True일 경우 동기화된 프레임 이미지 파일로 저장

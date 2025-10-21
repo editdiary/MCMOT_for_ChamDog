@@ -1,26 +1,30 @@
 # 후처리(추론) 스레드 관리 파일
 
+import os
 import cv2
 from queue import Empty, Full, Queue
 import time
 from concurrent.futures import ThreadPoolExecutor
+#from ultralytics import YOLO
+from sync_utils import save_sync_frames
 
 from pipe_detection import find_pipe_line
-#from sync_utils import save_sync_frames  # 이제 저장 함수는 save_worker가 사용
 from config import (
     GUI_DEBUG, IMG_SAVE,
     USE_ZED_RIGHT_FOR_PIPE,
     INFERENCE_WORKER_TIMEOUT,
     CPU_WORKER_TIMEOUT,
-    SAVE_BUFFER_SIZE
+    SAVE_WORKER_TIMEOUT,
+    #SAVE_BUFFER_SIZE
 )
 
+
 # [New!] 저장 스레드로 데이터를 전달할 큐
-save_queue = Queue(maxsize=SAVE_BUFFER_SIZE)
+#save_queue = Queue(maxsize=SAVE_BUFFER_SIZE)
 
 
 # [New!] 파이프 탐지 및 YOLO 추론을 담당할 소비자(Consumer) 스레드 함수
-def inference_worker(queue, shutdown_event):
+def inference_worker(inference_queue, save_queue, shutdown_event, output_dir, weights_dir):
     """
     inference_queue에서 동기화된 프레임 세트를 가져와
     CPU 작업(Pipe 탐지)과 GPU 작업(YOLO 추론)을 병렬로 처리
@@ -32,10 +36,14 @@ def inference_worker(queue, shutdown_event):
     cpu_thread_pool = ThreadPoolExecutor(max_workers=1)
     pipe_future = None      # 안정적인 운영을 위한 변수 초기화
 
+    # [New!] YOLO 모델 로드
+    yolo_weights_path = os.path.join(weights_dir, "best.pt")
+    #yolo_model = YOLO(yolo_weights_path)
+
     while not shutdown_event.is_set():
         try:
             # 1. 동기화된 프레임 세트를 큐에서 가져옴 (타임아웃 1초)
-            (ts, (frame_zl, frame_zr), frame_l, frame_r) = queue.get(INFERENCE_WORKER_TIMEOUT)
+            (ts, (frame_zl, frame_zr), frame_l, frame_r) = inference_queue.get(INFERENCE_WORKER_TIMEOUT)
 
             # [추가] 프레임 유효성 검사 (큰 문제 없으면 뺴도 될 듯)
             if frame_zl is None or frame_zl.size == 0:
@@ -63,18 +71,14 @@ def inference_worker(queue, shutdown_event):
 
             # 3. (병렬 작업 2) 메인 스레드(GPU 담당)는 YOLO 추론을 바로 실행
             # GPU 작업을 위해 Left/Right 이미지를 '배치'로 묶음
-            # yolo_batch = [frame_l, frame_r]
+            #yolo_batch = [frame_l, frame_r]
 
             # GPU에서 "배치"를 한 번에 처리
-            # (가상의 YOLO 함수 호출)
-            # yolo_results_batch = yolo_model(yolo_batch)
-            
-            # 지금은 시뮬레이션
-            time.sleep(0.05) # 50ms (0.05초)가 걸리는 GPU 작업 시뮬레이션
+            #yolo_results_batch = yolo_model(yolo_batch)
 
             # (결과 분리)
-            # yolo_results_l = yolo_results_batch[0]
-            # yolo_results_r = yolo_results_batch[1]
+            #yolo_results_l = yolo_results_batch[0]
+            #yolo_results_r = yolo_results_batch[1]
 
             # 4. CPU 스레드의 파이프 탐지 결과가 끝날 때까지 "대기"
             # (YOLO가 50ms, 파이프 탐지가 15ms 걸렸다면,
@@ -125,7 +129,7 @@ def inference_worker(queue, shutdown_event):
             if IMG_SAVE:
                 try:
                     # 저장 스레드에 필요한 모든 데이터를 튜플로 묶어 전달
-                    save_data = (frame_zl, frame_zr, frame_l, frame_r, annotated_image)
+                    save_data = (frame_zl, frame_zr, frame_l, frame_r, annotated_image, output_dir)
                     save_queue.put_nowait(save_data)
                 except Full:
                     print("[Inference Thread] 경고: 저장 큐가 가득 찼습니다. 이미지 저장을 건너뜁니다.")
@@ -163,10 +167,7 @@ def inference_worker(queue, shutdown_event):
 
 
 # --- [New!] 저장 스레드 함수 ---
-from sync_utils import save_sync_frames
-from config import SAVE_WORKER_TIMEOUT
-
-def save_worker(queue, shutdown_event):
+def save_worker(save_queue, shutdown_event, output_dir):
     """
     save_queue에서 데이터를 가져와 이미지 파일로 저장하는 스레드
     """
@@ -174,10 +175,10 @@ def save_worker(queue, shutdown_event):
     while not shutdown_event.is_set():
         try:
             # 1. 저장할 데이터 세트를 큐에서 가져옴
-            (frame_zl, frame_zr, frame_l, frame_r, annotated_image) = queue.get(SAVE_WORKER_TIMEOUT)
+            (frame_zl, frame_zr, frame_l, frame_r, annotated_image, output_dir_from_queue) = save_queue.get(SAVE_WORKER_TIMEOUT)
 
             # 2. sync_utils의 저장 함수 호출
-            if save_sync_frames(frame_zl, frame_zr, frame_l, frame_r, frame_roi=annotated_image):
+            if save_sync_frames((frame_zl, frame_zr), frame_l, frame_r, output_dir_from_queue, frame_roi=annotated_image):
                 print("[Save Thread] 이미지 저장 완료")
             else:
                 print("[Save Thread] 이미지 저장 실패")

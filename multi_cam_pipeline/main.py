@@ -1,5 +1,6 @@
 # 카메라 촬영 main 함수
 
+import os
 import threading
 from queue import Empty, Queue, Full
 
@@ -8,18 +9,35 @@ from config import (
     CAM_CONFIG, ZED_CONFIG, BUFFER_SIZE,
     MAIN_LOOP_TIMEOUT, MAX_ALLOWED_DIFF_SEC,
     INFERENCE_BUFFER_SIZE,
-    THREAD_JOIN_TIMEOUT
+    THREAD_JOIN_TIMEOUT,
+    OUTPUT_FOLDER_NAME, WEIGHTS_FOLDER_NAME,
+    SAVE_BUFFER_SIZE
 )
 from camera_modules import ArduCam, ZedCam
 from sync_utils import print_camera_settings
-from inference import inference_worker, save_worker, save_queue
+from processing import inference_worker, save_worker
 
+
+# --- [New!] 경로 설정 ---
+# main.py 파일이 있는 디렉토리의 절대 경로
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 절대 경로 생성
+OUTPUT_DIR = os.path.join(BASE_DIR, OUTPUT_FOLDER_NAME)
+WEIGHTS_DIR = os.path.join(BASE_DIR, WEIGHTS_FOLDER_NAME)
+
+# 경로 존재 확인
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
+if not os.path.exists(WEIGHTS_DIR):
+    os.makedirs(WEIGHTS_DIR)
 
 # 글로벌 종료 플래그
 shutdown_event = threading.Event()
 
 # [New!] 후처리(추론)를 위한 큐
 inference_queue = Queue(maxsize=INFERENCE_BUFFER_SIZE)
+save_queue = Queue(maxsize=SAVE_BUFFER_SIZE)
 
 
 def main():
@@ -37,10 +55,10 @@ def main():
     for cam in cameras.values():
         cam.start(shutdown_event)
     
-    # [New!] 추론 스레드 시작
+    # [New!] 추론 스레드 시작 (경로 전달)
     inference_thread = threading.Thread(
         target=inference_worker,
-        args=(inference_queue, shutdown_event),
+        args=(inference_queue, save_queue, shutdown_event, OUTPUT_DIR, WEIGHTS_DIR),
         daemon=True
     )
     inference_thread.start()
@@ -48,7 +66,7 @@ def main():
     # [New!] 저장 스레드 시작
     save_thread = threading.Thread(
         target=save_worker,
-        args=(save_queue, shutdown_event),
+        args=(save_queue, shutdown_event, OUTPUT_DIR),
         daemon=True
     )
     save_thread.start()
