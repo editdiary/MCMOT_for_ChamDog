@@ -3,13 +3,14 @@
 import cv2
 #import pyzed.sl as sl
 
-# 카메라 속성 정의 (v4l2-ctl로 확인한 지원하는 값으로 설정)
+# ----- 카메라 하드웨어 설정 -----
+# 카메라 속성 정의 (v4l2-ctl로 확인한 지원하는 값으로 설정해야 함)
 # 명령어: v4l2-ctl -d /dev/arducam_left --list-formats-ext
 CAM_CONFIG = {
     "left_cam": "/dev/arducam_left", "right_cam": "/dev/arducam_right",
     # Arducam 카메라에서 가능한 해상도: 1280x800, 800x600, 640x480, 320x240
     "frame_width": 800, "frame_height": 600, "fps": 15,
-    "fourcc": cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')    # MJPEG 코덱
+    "fourcc": cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
 }
 
 ZED_CONFIG = {
@@ -24,19 +25,33 @@ ZED_CONFIG = {
 #     "depth_mode": sl.DEPTH_MODE.NONE, "sdk_verbose": 1    
 # }
 
-# 각 카메라가 frame을 저장할 버퍼(Queue)의 크기
-BUFFER_SIZE = 3
 
-# 카메라 연결 실패 처리 설정
-CAMERA_TIMEOUT_SEC = 5.0  # 2초 동안 연속 실패 시 스레드 종료
+# ----- 버퍼 설정 -----
+BUFFER_SIZE = 3                     # 각 카메라 캡처 thread의 프레임 버퍼 크기
+CAMERA_TIMEOUT_SEC = 5.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
+MAIN_LOOP_TIMEOUT = 0.2             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
+INFERENCE_BUFFER_SIZE = 5           # 추론 스레드 입력 큐의 버퍼 크기
+SAVE_BUFFER_SIZE = 10               # [New!] 저장 스레드 입력 큐의 버퍼 크기
+INFERENCE_WORKER_TIMEOUT = 1.0      # 추론 스레드가 입력 큐를 기다리는 최대 시간 (초)
+CPU_WORKER_TIMEOUT = 1.0            # 추론 스레드가 CPU 작업 결과를 기다리는 최대 시간 (초)
+SAVE_WORKER_TIMEOUT = 1.0           # [New!] 저장 스레드가 입력 큐를 기다리는 최대 시간 (초
+THREAD_JOIN_TIMEOUT = 5.0           # 프로그램 종료 시 스레드 종료를 기다리는 최대 시간 (초)
 
-# 메인 루프 타임아웃 설정
-#MAIN_LOOP_TIMEOUT = (1 / CAM_CONFIG['fps']) * 3
-MAIN_LOOP_TIMEOUT = 5.0
 
-# 안정적인 매칭을 위해 허용되는 최대 시간 차이 (초)
-MAX_ALLOWED_DIFF_SEC = (1 / CAM_CONFIG['fps']) * 1
+# ----- 동기화 설정 -----
+# 프레임 간격 (초)
+FRAME_INTERVAL_SEC = 1 / ZED_CONFIG['zed_fps']
+# 동기화 허용 오차 (초), 예: 1.1 프레임 간격
+MAX_ALLOWED_DIFF_SEC = FRAME_INTERVAL_SEC * 1.1
 
-# --- 실행 옵션 ---
-GUI_DEBUG = False
-IMG_SAVE = False
+
+# ----- 파이프 탐지 설정 -----
+# ROI(관심 영역) 좌표 (x, y, width, height)
+PIPE_ROI_COORS = {'x': 630, 'y': 350, 'width': 200, 'height': 300}
+# 파이프 탐지에 사용할 ZED 프레임 (Flase: 왼쪽, True: 오른쪽)
+USE_ZED_RIGHT_FOR_PIPE = False
+
+
+# ----- 실행 옵션 -----
+GUI_DEBUG = False       # True일 경우 OpenCV 창으로 실시간 영상 표시
+IMG_SAVE = False        # True일 경우 동기화된 프레임 이미지 파일로 저장
