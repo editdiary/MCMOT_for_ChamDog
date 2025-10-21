@@ -13,6 +13,7 @@ logs/
 *.weights
 *.bin
 *.onnx
+*.engine
 
 # ---------------------------------
 # 데이터 및 이미지 파일 (Data & Image files)
