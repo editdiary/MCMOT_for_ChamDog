@@ -39,6 +39,36 @@ shutdown_event = threading.Event()
 inference_queue = Queue(maxsize=INFERENCE_BUFFER_SIZE)
 save_queue = Queue(maxsize=SAVE_BUFFER_SIZE)
 
+def warmup_cameras(cameras, warmup_frames, timeout, shutdown_event):
+    """카메라 안정화를 위해 지정된 프레임 수만큼 읽기를 시도합니다."""
+    try:
+        for i in range(warmup_frames):
+            for cam_name, cam in cameras.items():
+                try:
+                    # 각 프레임 읽기 시도 (타임아웃 적용)
+                    cam.read(timeout=timeout)
+                except Empty:
+                    # 개별 카메라 타임아웃 발생 시 경고 출력 (프로그램 중단은 아님)
+                    print(f"워밍업 중 {cam_name} 카메라 타임아웃 ({i+1}/{warmup_frames} 프레임)")
+                    pass
+            # 워밍업 중에도 종료 신호 확인
+            if shutdown_event.is_set():
+                print("워밍업 중 종료 신호 감지.")
+                return False
+        
+        # 모든 프레임 처리 완료
+        print("워밍업 완료.")
+        # [Option] 워밍업 후 큐를 비워 최신 상태에서 시작
+        for cam in cameras.values():
+            while not cam.queue.empty():
+                try: cam.queue.get_nowait()
+                except Empty: break
+        return True     # 워밍업 성공
+    
+    except Exception as e:
+        print(f"워밍업 중 오류 발생: {e}")
+        shutdown_event.set()
+        return False    # 워밍업 실패
 
 def main():
     try:
@@ -71,44 +101,33 @@ def main():
     )
     save_thread.start()
 
-    ## 이것도 print_camera_settings 함수에 통합해서 argument로 조절하는게 좋을듯
-    print("\n=== 설정한 카메라 파라미터 요약 ===")
-    print(f"ZED Camera:    {ZED_CONFIG['zed_width']}x{ZED_CONFIG['zed_height']} @ {ZED_CONFIG['zed_fps']}fps")
-    print(f"ArduCam Left:  {CAM_CONFIG['frame_width']}x{CAM_CONFIG['frame_height']} @ {CAM_CONFIG['fps']}fps")
-    print(f"ArduCam Right: {CAM_CONFIG['frame_width']}x{CAM_CONFIG['frame_height']} @ {CAM_CONFIG['fps']}fps")
-    print(f"버퍼 크기: {BUFFER_SIZE} 프레임")
-    print("========================\n")
-    
-    print_camera_settings(cameras)    # 실제 시스템에 설정된 값들을 간단히 출력
-
-    # ---- 카메라 안정화를 위해 워밍업 과정 추가 ----
-    WARMUP_FRAMES = CAM_CONFIG['fps'] * 2
-    print(f"카메라 안정화를 위해 {WARMUP_FRAMES} 프레임 동안 워밍업을 시작합니다...")
-    try:
-        for _ in range(WARMUP_FRAMES):
-            for cam in cameras.values():
-                cam.read(timeout=2.0)
-    except Empty:
-        print("워밍업 중 카메라 대기 시간 초과. 큐가 비어있습니다. 프로그램을 종료합니다.")
-        shutdown_event.set()
-        return
-        
-    print("워밍업 완료.")
-    # ------------------------------------------
+    # 카메라 세팅값 요약 출력    
+    print_camera_settings(cameras, CAM_CONFIG, ZED_CONFIG)
 
     exit_app = False
 
-    # [수정] 3개의 큐에서 프레임을 하나씩 미리 가져옴
+    # 메인 try 블록 시작
     try:
-        zed_ts, (frame_zl, frame_zr) = cameras['zed'].read(timeout=MAIN_LOOP_TIMEOUT)
-        left_ts, frame_l = cameras['left'].read(timeout=MAIN_LOOP_TIMEOUT)
-        right_ts, frame_r = cameras['right'].read(timeout=MAIN_LOOP_TIMEOUT)
-    except Empty:
-        print("초기 프레임 로드 실패. 카메라 연결을 확인하세요.")
-        shutdown_event.set()
-        exit_app = True
+        # 카메라 안정화를 위한 워밍업 함수 호출
+        WARMUP_FRAMES = CAM_CONFIG['fps'] * 2
+        # 워밍업 read 타임아웃 설정 (MAIN_LOOP_TIMEOUT과 같거나 약간 길게)
+        WARMUP_TIMEOUT = MAIN_LOOP_TIMEOUT * 2
 
-    try:
+        if not warmup_cameras(cameras, WARMUP_FRAMES, WARMUP_TIMEOUT, shutdown_event):
+            print("카메라 안정화 실패. 프로그램을 종료합니다.")
+            return
+        
+        # ----- 워밍업 로직 끝 -----
+
+        # [수정] 3개의 큐에서 프레임을 하나씩 미리 가져옴
+        try:
+            zed_ts, (frame_zl, frame_zr) = cameras['zed'].read(timeout=MAIN_LOOP_TIMEOUT)
+            left_ts, frame_l = cameras['left'].read(timeout=MAIN_LOOP_TIMEOUT)
+            right_ts, frame_r = cameras['right'].read(timeout=MAIN_LOOP_TIMEOUT)
+        except Empty:
+            print("초기 프레임 로드 실패. 카메라 연결을 확인하세요.")
+            exit_app = True
+
         while not exit_app and not shutdown_event.is_set():
             # [새 로직] 타임스탬프 리스트와 최대/최소값 계산
             ts_list = [zed_ts, left_ts, right_ts]

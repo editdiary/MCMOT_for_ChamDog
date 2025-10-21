@@ -54,11 +54,20 @@ class ArduCam(Camera):
         consecutive_failures = 0
         max_consecutive_failures = int(CAMERA_TIMEOUT_SEC * CAM_CONFIG['fps'])  # 시간 기반 계산
 
-        # [New!] 실제 프레임 촬영을 위한 코드 임시 추가
-        frame_count = 0
-        last_log_time = time.time()
+        # --- [디버깅용] 실제 촬영 FPS 계산용 변수 ---
+        # frame_count = 0
+        # last_log_time = time.time()
+        # ----------------------------------------
         
         while not self.shutdown_event.is_set():
+            # --- [디버깅용] 1초마다 FPS 로그 출력 로직 ---
+            # current_time = time.time()
+            # if current_time - last_log_time >= 1.0:
+            #    print(f"ArduCam '{self.device_path}' 프레임 캡처 성공: {frame_count}프레임")
+            #    last_log_time = current_time
+            #    frame_count = 0
+            # -----------------------------------------
+
             try:
                 if self.cap.grab():
                     consecutive_failures = 0
@@ -66,13 +75,9 @@ class ArduCam(Camera):
                     system_timestamp = cv2.getTickCount() / cv2.getTickFrequency()
                     ret, frame = self.cap.retrieve()
                     if ret:
-                        # [New!] 실제 프레임 촬영을 위한 코드 임시 추가
-                        frame_count += 1
-                        current_time = time.time()
-                        if current_time - last_log_time >= 1.0:
-                            print(f"ArduCam '{self.device_path}' 프레임 캡처 성공: {frame_count}프레임")
-                            last_log_time = current_time
-                            frame_count = 0
+                        # --- [디버깅용] 프레임 카운트 증가 ---
+                        # frame_count += 1
+                        # ---------------------------------
 
                         if self.queue.full():
                             try: self.queue.get_nowait()
@@ -123,14 +128,23 @@ class ZedCam(Camera):
         consecutive_failures = 0
         max_consecutive_failures = int(CAMERA_TIMEOUT_SEC * ZED_CONFIG['zed_fps'])  # 시간 기반 계산
 
-        # [New!] 실제 프레임 촬영을 위한 코드 임시 추가
-        frame_count = 0
-        last_log_time = time.time()
+        # --- [디버깅용] 실제 촬영 FPS 계산용 변수 ---
+        # frame_count = 0
+        # last_log_time = time.time()
+        # ----------------------------------------
 
         # V4L2로 촬영한 ZED 스테레오 이미지를 분할하기 위한 너비
         crop_width = self.w // 2
         
         while not self.shutdown_event.is_set():
+        # --- [디버깅용] 1초마다 FPS 로그 출력 로직 ---
+        # current_time = time.time()
+        # if current_time - last_log_time >= 1.0:
+        #    print(f"ZED '{self.device_path}' 프레임 캡처 성공: {frame_count}프레임")
+        #    last_log_time = current_time
+        #    frame_count = 0
+        # -----------------------------------------
+
             try:
                 if self.cap.grab():
                     consecutive_failures = 0
@@ -139,13 +153,9 @@ class ZedCam(Camera):
 
                     ret, stereo_frame = self.cap.retrieve()
                     if ret:
-                        # [New!] 실제 프레임 촬영을 위한 코드 임시 추가
-                        frame_count += 1
-                        current_time = time.time()
-                        if current_time - last_log_time >= 1.0:
-                            print(f"ZED '{self.device_path}' 프레임 캡처 성공: {frame_count}프레임")
-                            last_log_time = current_time
-                            frame_count = 0
+                        # --- [디버깅용] 프레임 카운트 증가 ---
+                        # frame_count += 1
+                        # ---------------------------------
 
                         # V4L2로 촬영한 ZED는 스테레오 프레임이므로 좌우 프레임으로 분리
                         try:

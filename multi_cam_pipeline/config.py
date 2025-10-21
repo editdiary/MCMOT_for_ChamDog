@@ -45,7 +45,6 @@ CPU_WORKER_TIMEOUT = 1.0            # 추론 스레드가 CPU 작업 결과를 �
 SAVE_WORKER_TIMEOUT = 1.0           # [New!] 저장 스레드가 입력 큐를 기다리는 최대 시간 (초
 THREAD_JOIN_TIMEOUT = 5.0           # 프로그램 종료 시 스레드 종료를 기다리는 최대 시간 (초)
 
-
 # ----- 동기화 설정 -----
 # 프레임 간격 (초)
 FRAME_INTERVAL_SEC = 1 / ZED_CONFIG['zed_fps']
@@ -55,11 +54,11 @@ MAX_ALLOWED_DIFF_SEC = FRAME_INTERVAL_SEC * 1.1
 
 # ----- 파이프 탐지 설정 -----
 # ROI(관심 영역) 좌표 (x, y, width, height)
-PIPE_ROI_COORS = {'x': 630, 'y': 350, 'width': 200, 'height': 300}
+PIPE_ROI_COORS = {'x': 630, 'y': 350, 'w': 200, 'h': 300}
 # 파이프 탐지에 사용할 ZED 프레임 (Flase: 왼쪽, True: 오른쪽)
 USE_ZED_RIGHT_FOR_PIPE = False
 
 
 # ----- 실행 옵션 -----
 GUI_DEBUG = False       # True일 경우 OpenCV 창으로 실시간 영상 표시
-IMG_SAVE = True        # True일 경우 동기화된 프레임 이미지 파일로 저장
+IMG_SAVE = False        # True일 경우 동기화된 프레임 이미지 파일로 저장

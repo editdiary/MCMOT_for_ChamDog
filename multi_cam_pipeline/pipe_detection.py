@@ -17,8 +17,8 @@ def find_pipe_line(frame_z):
     # ROI(관심 영역) 좌표
     roi_x = PIPE_ROI_COORS['x']
     roi_y = PIPE_ROI_COORS['y']
-    roi_w = PIPE_ROI_COORS['width']
-    roi_h = PIPE_ROI_COORS['height']
+    roi_w = PIPE_ROI_COORS['w']
+    roi_h = PIPE_ROI_COORS['h']
     roi_coords = (roi_x, roi_y, roi_w, roi_h)   # 좌표 튜블 저장
 
     # ROI(관심 영역) 자르기
