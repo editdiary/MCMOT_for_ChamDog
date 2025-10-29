@@ -14,6 +14,7 @@ logs/
 *.bin
 *.onnx
 *.engine
+*.pkl
 
 # ---------------------------------
 # 데이터 및 이미지 파일 (Data & Image files)
@@ -28,8 +29,10 @@ logs/
 *.mp4
 *.avi
 *.webm
+*.pkl
+
 # label txt 파일
-*.txt
+*labels.txt
 # 만약 데이터셋 폴더를 사용한다면
 # */dataset/
 # data/

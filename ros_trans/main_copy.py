@@ -143,10 +143,77 @@ def main():
                 try:
                     # -------------------------------------------------------------------------------------------------------------
                     # !!!!!!!! 이 부분에서 queue에 데이터 넣기 전에 ROS 변환 및 송신 + 전송된 데이터 수신 로직 추가하면 될 거 같습니다 !!!!!!!!
+                    
+                    try:
+                        # Lazy init: 루프 내에서 최초 호출 시 한 번만 rclpy/CvBridge 노드 생성
+                        if 'ros_rt' not in globals():
+                            import rclpy
+                            from rclpy.node import Node
+                            from rclpy.qos import QoSProfile
+                            from sensor_msgs.msg import Image
+                            from cv_bridge import CvBridge
+                            import threading
 
+                            class RosImageRoundtrip:
+                                def __init__(self):
+                                    if not rclpy.ok():
+                                        rclpy.init(args=None)
+                                    self.node = rclpy.create_node('image_roundtrip_node')
+                                    qos = QoSProfile(depth=1)
+                                    self.pub = self.node.create_publisher(Image, 'image_roundtrip', qos)
+                                    self.bridge = CvBridge()
+                                    self._event = threading.Event()
+                                    self.last_msg = None
+                                    # callback: 수신 시 마지막 메시지를 저장하고 이벤트 셋
+                                    def _cb(msg):
+                                        self.last_msg = msg
+                                        self._event.set()
+                                    self.sub = self.node.create_subscription(Image, 'image_roundtrip', _cb, qos)
+                                    # spin을 별도 스레드에서 실행하여 콜백이 처리되도록 함
+                                    self._spin_thread = threading.Thread(target=lambda: rclpy.spin(self.node), daemon=True)
+                                    self._spin_thread.start()
 
+                                def roundtrip(self, cv_img, timeout=0.05, encoding='bgr8'):
+                                    """이미지를 ROS msg로 변환해 publish한 뒤 수신된 msg를 다시 cv2 이미지로 변환해 반환합니다.
+                                       실패하면 None을 반환합니다."""
+                                    self._event.clear()
+                                    img_msg = self.bridge.cv2_to_imgmsg(cv_img, encoding=encoding)
+                                    self.pub.publish(img_msg)
+                                    if self._event.wait(timeout):
+                                        try:
+                                            return self.bridge.imgmsg_to_cv2(self.last_msg, desired_encoding=encoding)
+                                        except Exception:
+                                            return None
+                                    return None
 
+                                def destroy(self):
+                                    try:
+                                        self.node.destroy_node()
+                                    except Exception:
+                                        pass
 
+                            ros_rt = RosImageRoundtrip()
+
+                        # 라운드트립 수행: 필요한 카메라 프레임들에 대해 적용
+                        # encoding은 카메라 프레임의 포맷에 맞춰 변경 (예: 'bgr8', 'rgb8', 'mono8', 'rgba8' 등)
+                        rt_left = ros_rt.roundtrip(frame_l, timeout=0.05, encoding='bgr8')
+                        if rt_left is not None:
+                            frame_l = rt_left
+
+                        rt_right = ros_rt.roundtrip(frame_r, timeout=0.05, encoding='bgr8')
+                        if rt_right is not None:
+                            frame_r = rt_right
+
+                        # ZED 쌍(frames)도 동일 방식으로 처리 (프레임 타입에 맞는 encoding 사용)
+                        rt_zl = ros_rt.roundtrip(frame_zl, timeout=0.05, encoding='bgr8')
+                        if rt_zl is not None:
+                            frame_zl = rt_zl
+                        rt_zr = ros_rt.roundtrip(frame_zr, timeout=0.05, encoding='bgr8')
+                        if rt_zr is not None:
+                            frame_zr = rt_zr
+
+                    except Exception as e:
+                        print(f"[ROS roundtrip] 오류: {e}")
 
                     # -------------------------------------------------------------------------------------------------------------
                     inference_queue.put_nowait(

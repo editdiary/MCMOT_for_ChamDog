@@ -37,7 +37,7 @@ ZED_CONFIG = {
 # ----- 버퍼 설정 -----
 BUFFER_SIZE = 3                     # 각 카메라 캡처 thread의 프레임 버퍼 크기
 CAMERA_TIMEOUT_SEC = 5.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
-MAIN_LOOP_TIMEOUT = 1.0             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
+MAIN_LOOP_TIMEOUT = 0.2             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
 INFERENCE_BUFFER_SIZE = 5           # 추론 스레드 입력 큐의 버퍼 크기
 SAVE_BUFFER_SIZE = 10               # [New!] 저장 스레드 입력 큐의 버퍼 크기
 INFERENCE_WORKER_TIMEOUT = 1.0      # 추론 스레드가 입력 큐를 기다리는 최대 시간 (초)
