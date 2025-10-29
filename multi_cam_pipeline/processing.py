@@ -2,6 +2,7 @@
 
 import os
 import cv2
+import csv
 from queue import Empty, Full
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ from config import (
     INFERENCE_WORKER_TIMEOUT,
     CPU_WORKER_TIMEOUT,
     SAVE_WORKER_TIMEOUT,
+    RUN_SYNC_TEST, SYNC_TEST_LOG_FILE
 )
 
 
@@ -44,8 +46,8 @@ def inference_worker(inference_queue, save_queue, shutdown_event, output_dir, we
 
     while not shutdown_event.is_set():
         try:
-            # 1. 동기화된 프레임 세트를 큐에서 가져옴 (타임아웃 1초)
-            (ts, (frame_zl, frame_zr), frame_l, frame_r) = inference_queue.get(INFERENCE_WORKER_TIMEOUT)
+            # 1. 동기화된 프레임 세트를 큐에서 가져옴
+            (timestamps, (frame_zl, frame_zr), frame_l, frame_r) = inference_queue.get(timeout=INFERENCE_WORKER_TIMEOUT)
 
             # [추가] 프레임 유효성 검사 (큰 문제 없으면 뺴도 될 듯)
             if frame_zl is None or frame_zl.size == 0:
@@ -137,10 +139,10 @@ def inference_worker(inference_queue, save_queue, shutdown_event, output_dir, we
                         print("Track Point: Not found")
 
             # ----- [핵심 수정] 저장 큐에 데이터 넣기 -----
-            if IMG_SAVE:
+            if IMG_SAVE or RUN_SYNC_TEST:   # SYNC 저장 모드일 때도 저장 큐 사용
                 try:
                     # 저장 스레드에 필요한 모든 데이터를 튜플로 묶어 전달
-                    save_data = (frame_zl, frame_zr, frame_l, frame_r, annotated_image, detected_objects, output_dir)
+                    save_data = (timestamps, frame_zl, frame_zr, frame_l, frame_r, annotated_image, detected_objects, output_dir)
                     save_queue.put_nowait(save_data)
                 except Full:
                     print("[Inference Thread] 경고: 저장 큐가 가득 찼습니다. 이미지 저장을 건너뜁니다.")
@@ -184,16 +186,62 @@ def save_worker(save_queue, shutdown_event, output_dir):
     (YOLO 결과 포함)
     """
     print("[Save Thread] 저장 스레드 시작...")
+
+    # [New!] config의 전역 플래그를 '로컬 플래그' 변수로 복사
+    local_run_sync_test = RUN_SYNC_TEST
+    csv_file_path = ""  # 에러 발생 시를 대비해 바깥쪽에 초기화
+
+    if local_run_sync_test:
+        try:
+            # [New!] CSV 파일 초기화 (헤더 작성)
+            csv_file_path = os.path.join(output_dir, SYNC_TEST_LOG_FILE)
+            with open(csv_file_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "sync_event_id",
+                    "ts_zed", "ts_left", "ts_right",
+                    "sys_diff_zed_left(s)", "sys_diff_zed_right(s)", "sys_diff_left_right(s)",
+                    "sys_diff_max(s)"
+                ])
+            print(f"[Save Thread] 동기화 로그 파일 생성: {csv_file_path}")
+        except Exception as e:
+            print(f"[Save Thread] CSV 파일 생성 실패: {e}")
+            local_run_sync_test = False   # 에러 시 로깅 중지
+
     while not shutdown_event.is_set():
         try:
             # 1. 저장할 데이터 세트를 큐에서 가져옴 (detected_objects 추가)
-            (frame_zl, frame_zr, frame_l, frame_r, annotated_image, detected_objects, output_dir_from_queue) = save_queue.get(SAVE_WORKER_TIMEOUT)
+            (timestamps, frame_zl, frame_zr, frame_l, frame_r, annotated_image, detected_objects, output_dir_from_queue) = save_queue.get(SAVE_WORKER_TIMEOUT)
 
-            # 2. sync_utils의 저장 함수 호출
-            if save_sync_frames((frame_zl, frame_zr), frame_l, frame_r, output_dir_from_queue, frame_roi=annotated_image, yolo_detections=detected_objects):
-                print("[Save Thread] 이미지 저장 완료")
-            else:
-                print("[Save Thread] 이미지 저장 실패")
+            # [New!] 고유 ID 생성 (timestamp 기반)
+            sync_event_id = f"{time.time_ns()}"
+
+            # [New!] CSV 로깅 로직
+            if RUN_SYNC_TEST:
+                try:
+                    ts_zed, ts_left, ts_right = timestamps
+                    sys_diff_zed_left = ts_zed - ts_left
+                    sys_diff_zed_right = ts_zed - ts_right
+                    sys_diff_left_right = ts_left - ts_right
+                    sys_diff_max = max(timestamps) - min(timestamps)
+
+                    with open(csv_file_path, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            sync_event_id,
+                            f"{ts_zed:.6f}", f"{ts_left:.6f}", f"{ts_right:.6f}",
+                            f"{sys_diff_zed_left:.6f}", f"{sys_diff_zed_right:.6f}", f"{sys_diff_left_right:.6f}",
+                            f"{sys_diff_max:.6f}"
+                        ])
+                except IOError as e:
+                    print(f"[Save Thread] CSV 쓰기 오류: {e}")
+                except Exception as e:
+                    print(f"[Save Thread] timestamp 로깅 중 알 수 없는 오류: {e}")
+
+            # 2. sync_utils의 저장 함수 호출 (IMG_SAVE=True일 때만)
+            if IMG_SAVE:
+                if not save_sync_frames(sync_event_id, (frame_zl, frame_zr), frame_l, frame_r, output_dir_from_queue, frame_roi=annotated_image, yolo_detections=detected_objects):
+                    print("[Save Thread] 이미지 저장 실패")
         
         except Empty:
             # 큐가 비어있으면 계속 대기

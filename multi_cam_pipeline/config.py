@@ -36,8 +36,8 @@ ZED_CONFIG = {
 
 # ----- 버퍼 설정 -----
 BUFFER_SIZE = 3                     # 각 카메라 캡처 thread의 프레임 버퍼 크기
-CAMERA_TIMEOUT_SEC = 3.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
-MAIN_LOOP_TIMEOUT = 0.2             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
+CAMERA_TIMEOUT_SEC = 5.0            # 카메라 grab 실패 시 스레드 종료까지 대기 시간 (초)
+MAIN_LOOP_TIMEOUT = 1.0             # main thread가 카메라 큐를 기다리는 최대 시간 (초)
 INFERENCE_BUFFER_SIZE = 5           # 추론 스레드 입력 큐의 버퍼 크기
 SAVE_BUFFER_SIZE = 10               # [New!] 저장 스레드 입력 큐의 버퍼 크기
 INFERENCE_WORKER_TIMEOUT = 1.0      # 추론 스레드가 입력 큐를 기다리는 최대 시간 (초)
@@ -49,7 +49,7 @@ THREAD_JOIN_TIMEOUT = 5.0           # 프로그램 종료 시 스레드 종료�
 # 프레임 간격 (초)
 FRAME_INTERVAL_SEC = 1 / ZED_CONFIG['zed_fps']
 # 동기화 허용 오차 (초), 예: 1.1 프레임 간격
-MAX_ALLOWED_DIFF_SEC = FRAME_INTERVAL_SEC * 1.1
+MAX_ALLOWED_DIFF_SEC = FRAME_INTERVAL_SEC * 1.0
 
 
 # ----- 파이프 탐지 설정 -----
@@ -62,3 +62,8 @@ USE_ZED_RIGHT_FOR_PIPE = False
 # ----- 실행 옵션 -----
 GUI_DEBUG = False       # True일 경우 OpenCV 창으로 실시간 영상 표시
 IMG_SAVE = False        # True일 경우 동기화된 프레임 이미지 파일로 저장
+
+
+# ----- 동기화 테스트 설정 -----
+RUN_SYNC_TEST = True    # True일 경우, timestamp CSV 로깅 활성화
+SYNC_TEST_LOG_FILE = "sync_test_log.csv"

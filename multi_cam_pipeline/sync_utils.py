@@ -3,12 +3,12 @@
 import cv2
 import os
 
-def save_sync_frames(frame_set, frame_l, frame_r, output_dir, frame_roi=None, yolo_detections=None):
-    """동기화된 프레임들을 저장 (YOLO bbox 그리기 포함)"""
+def save_sync_frames(sync_event_id, frame_set, frame_l, frame_r, output_dir, frame_roi=None, yolo_detections=None):
+    """동기화된 프레임들을 고유 ID로 저장 (YOLO bbox 그리기 포함)"""
     try:
         # ZED 프레임 저장
-        cv2.imwrite(os.path.join(output_dir, "test_zed_left.jpg"), frame_set[0])
-        cv2.imwrite(os.path.join(output_dir, "test_zed_right.jpg"), frame_set[1])
+        cv2.imwrite(os.path.join(output_dir, f"{sync_event_id}_test_zed_left.jpg"), frame_set[0])
+        cv2.imwrite(os.path.join(output_dir, f"{sync_event_id}_test_zed_right.jpg"), frame_set[1])
 
         # [New!] frame_l에 YOLO_bbox 그리기
         if yolo_detections:
@@ -30,17 +30,18 @@ def save_sync_frames(frame_set, frame_l, frame_r, output_dir, frame_roi=None, yo
         # --------------------------------------------
 
         # Arducam 프레임들 저장
-        cv2.imwrite(os.path.join(output_dir, "test_left.jpg"), frame_l_to_save)
-        cv2.imwrite(os.path.join(output_dir, "test_right.jpg"), frame_r)
+        cv2.imwrite(os.path.join(output_dir, f"{sync_event_id}_test_left.jpg"), frame_l_to_save)
+        cv2.imwrite(os.path.join(output_dir, f"{sync_event_id}_test_right.jpg"), frame_r)
 
         # frame_roi가 None이 아닐 때만 저장
         if frame_roi is not None:
             # 승운님 작성해주신 roi 영역 저장
-            cv2.imwrite(os.path.join(output_dir, "test_roi.jpg"), frame_roi)
-
+            cv2.imwrite(os.path.join(output_dir, f"{sync_event_id}_test_roi.jpg"), frame_roi)
+        
+        print(f"[Save Thread] 이미지 저장 완료 (ID: {sync_event_id}): {e}")
         return True
     except Exception as e:
-        print(f"이미지 저장 실패: {e}")
+        print(f"이미지 저장 실패 (ID: {sync_event_id}): {e}")
         return False
 
 def print_camera_settings(cameras, cam_config, zed_config):

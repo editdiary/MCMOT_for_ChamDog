@@ -1,10 +1,13 @@
 # 카메라 촬영 main 함수
 
+from typing import Any
+
+
 import os
 import threading
 from queue import Empty, Queue, Full
 
-# 분리된 모듈들 임포트
+# 분리된 모듈들 임포트 (!!!이 설정도 그냥 config만 import하게 바꿀 수 있을 거 같음!!!)
 from config import (
     CAM_CONFIG, ZED_CONFIG, BUFFER_SIZE,
     MAIN_LOOP_TIMEOUT, MAX_ALLOWED_DIFF_SEC,
@@ -19,7 +22,7 @@ from processing import inference_worker, save_worker
 
 
 # --- [New!] 경로 설정 ---
-# main.py 파일이 있는 디렉토리의 절대 경로
+# main.py 파일이 있는 디렉토리의 절대 경로 (!!!이것도 config로 뺄 수 있을 거 같은데!!!)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 절대 경로 생성
@@ -36,7 +39,7 @@ if not os.path.exists(WEIGHTS_DIR):
 shutdown_event = threading.Event()
 
 # [New!] 후처리(추론)를 위한 큐
-inference_queue = Queue(maxsize=INFERENCE_BUFFER_SIZE)
+inference_queue = Queue[Any](maxsize=INFERENCE_BUFFER_SIZE)
 save_queue = Queue(maxsize=SAVE_BUFFER_SIZE)
 
 def warmup_cameras(cameras, warmup_frames, timeout, shutdown_event):
@@ -141,8 +144,9 @@ def main():
 
                 # [새 로직] 동기화 성공 시, 프레임 세트를 'inference_queue'에 넣음
                 try:
+                    timestamps = (zed_ts, left_ts, right_ts)    # 기록을 위해 타임스탬프를 튜블로 묶어 전달
                     inference_queue.put_nowait(
-                        (zed_ts, (frame_zl, frame_zr), frame_l, frame_r)
+                        (timestamps, (frame_zl, frame_zr), frame_l, frame_r)
                     )
                 except Full:
                     # Queue가 가득 찼을 경우 (YOLO 추론이 너무 밀림)

@@ -1,0 +1,78 @@
+{
+  "sample_index": 3,
+  "timestamp": 1761209176.889199,
+  "items": [
+    {
+      "name": "left",
+      "orig_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/left_orig.png",
+      "msg_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/left_msg.pkl",
+      "msg_meta": {
+        "encoding": "bgr8",
+        "height": 600,
+        "width": 800
+      },
+      "restored_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/left_restored.png",
+      "stats": {
+        "same_shape": true,
+        "mse": 0.0,
+        "max_abs": 0,
+        "mean_abs": 0.0,
+        "psnr": Infinity
+      }
+    },
+    {
+      "name": "right",
+      "orig_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/right_orig.png",
+      "msg_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/right_msg.pkl",
+      "msg_meta": {
+        "encoding": "bgr8",
+        "height": 600,
+        "width": 800
+      },
+      "restored_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/right_restored.png",
+      "stats": {
+        "same_shape": true,
+        "mse": 0.0,
+        "max_abs": 0,
+        "mean_abs": 0.0,
+        "psnr": Infinity
+      }
+    },
+    {
+      "name": "zed_left",
+      "orig_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_left_orig.png",
+      "msg_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_left_msg.pkl",
+      "msg_meta": {
+        "encoding": "bgr8",
+        "height": 720,
+        "width": 1280
+      },
+      "restored_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_left_restored.png",
+      "stats": {
+        "same_shape": true,
+        "mse": 0.0,
+        "max_abs": 0,
+        "mean_abs": 0.0,
+        "psnr": Infinity
+      }
+    },
+    {
+      "name": "zed_right",
+      "orig_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_right_orig.png",
+      "msg_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_right_msg.pkl",
+      "msg_meta": {
+        "encoding": "bgr8",
+        "height": 720,
+        "width": 1280
+      },
+      "restored_path": "/workspace/ros_trans/output_images/rt_samples/sample_3/zed_right_restored.png",
+      "stats": {
+        "same_shape": true,
+        "mse": 0.0,
+        "max_abs": 0,
+        "mean_abs": 0.0,
+        "psnr": Infinity
+      }
+    }
+  ]
+}
